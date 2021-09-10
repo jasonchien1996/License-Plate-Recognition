@@ -1,3 +1,7 @@
+/*
+nvcc imgproc.cu -o libimgproc.so --shared --compiler-options '-fPIC' -I/usr/local/include/opencv4 -lopencv_core -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_cudaimgproc -lopencv_highgui -lopencv_cudaarithm -lopencv_cudawarping -lopencv_cudafilters -gencode=arch=compute_72,code=sm_72
+*/
+
 #include <math.h>
 #include <cuda_runtime.h>
 #include <opencv2/opencv.hpp>
@@ -5,14 +9,9 @@
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudawarping.hpp>
 #include <opencv2/cudafilters.hpp>
-
+#include "imgproc.cuh"
 using namespace std;
 
-/*
-nvcc imgproc.cu -o libimgproc.so --shared --compiler-options '-fPIC' -I/usr/local/include/opencv4 -lopencv_core -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_cudaimgproc -lopencv_highgui -lopencv_cudaarithm -lopencv_cudawarping -lopencv_cudafilters -gencode=arch=compute_72,code=sm_72
-*/
-
-bool process(cv::Mat, vector<cv::Mat>*);
 void imshow(cv::cuda::GpuMat*);
 void imshow(cv::cuda::GpuMat);
 void imshow(cv::Mat*);
@@ -68,7 +67,7 @@ bool process(cv::Mat cpu, vector<cv::Mat> *result_images) {
     imshow(shared_cpu);
     */    
     mask(&shared_cpu, &plateContour);
-    shrink(&shared_gpu, 2.f);
+    //shrink(&shared_gpu, 2.f);
     cv::cuda::bitwise_not(shared_gpu, shared_gpu);    
     vector<vector<cv::Point>> contours;
     vector<cv::Vec4i> hierarchy;
@@ -81,9 +80,12 @@ bool process(cv::Mat cpu, vector<cv::Mat> *result_images) {
 
     int l = leftEnd(&shared_cpu);
     int r = rightEnd(&shared_cpu);
+
     float angle = 0.f;
     if( r > l ){
-        int minLineLength = (int)((r - l)*0.4);
+		int temp = r - l;
+		shrink(&shared_gpu, temp * 0.004f);
+        int minLineLength = (int)(temp*0.4);
         int maxLineGap = (int)(shared_cpu.cols*0.2);
         angle = hough(&shared_gpu, minLineLength, maxLineGap);
 	    rotate(&shared_cpu, angle, cv::Scalar(255));
@@ -299,7 +301,7 @@ float hough(cv::cuda::GpuMat *gp, int minLineLength,int maxLineGap){
     else
 		return 0.;
     
-    if(lines.size() > 5){
+    if(lines.size() > 6){
 		/*
 		//for drawing lines        
 	    cv::Mat draw;
@@ -334,7 +336,7 @@ void rotate(cv::Mat *cp, float angle){
     int width = (*cp).cols;
     cv::Point2f image_center = cv::Point2f(width*0.5, height*0.5);
     cv::Mat rotation_mat = cv::getRotationMatrix2D(image_center, angle, 1.);
-    cv::warpAffine(*cp, *cp, rotation_mat, (*cp).size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+    cv::warpAffine(*cp, *cp, rotation_mat, (*cp).size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(255,255,255));
     //cv::cuda::warpAffine(*gp, *gp, rotation_mat, cv::Size(bound_w, bound_h), cv::INTER_LINEAR, cv::BORDER_CONSTANT, fill);
 }
 
@@ -344,9 +346,12 @@ bool crop(cv::cuda::GpuMat *gp, cv::Mat *cp, cv::Mat *color){
     int h = (int)(gp->rows*0.1);
 	if(h == 0) h += 1;
 	cv::Mat elem = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(w, h));
+	/*
     cv::Ptr<cv::cuda::Filter> dilateFilter = cv::cuda::createMorphologyFilter(cv::MORPH_DILATE, CV_8UC1, elem);  	
 	dilateFilter->apply(*gp, *gp);
-
+	*/
+	cv::dilate(*cp, *cp, elem);
+	//imshow(gp);
 	vector<cv::Point> contour = getMaxContour(cp);	
 	if(contour.size() > 0){
 		vector<cv::Point> contours_poly( contour.size() );
