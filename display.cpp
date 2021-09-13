@@ -10,7 +10,7 @@ int main() {
 	cv::Mat img = cv::imread("./picture/2.jpg");
 	cv::Mat a,b,c;
 	vector<cv::Mat> images = {a, b, c};
-    if(process(img, &images)){
+	if(process(img, &images)){
 		for(cv::Mat mat:images){
 			cv::imshow("mat", mat);
 			cv::waitKey(0);

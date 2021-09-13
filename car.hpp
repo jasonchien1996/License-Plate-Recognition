@@ -8,14 +8,14 @@ using namespace std;
 class Car { 
 private:
 	int dominantCategory;
-    array<unsigned, 3> category;
-    array<unsigned, 3> confidence;    
-    array<unsigned, 7> consec7;
-    array<unsigned, 6> consec6;
-    array<char, 7> currentSeven;
-    array<char, 6> currentSix;
-    array<unordered_map<char, unsigned>, 7> seven;
-    array<unordered_map<char, unsigned>, 6> six;
+	array<unsigned, 3> category;
+	array<unsigned, 3> confidence;    
+	array<unsigned, 7> consec7;
+	array<unsigned, 6> consec6;
+	array<char, 7> currentSeven;
+	array<char, 6> currentSix;
+	array<unordered_map<char, unsigned>, 7> seven;
+	array<unordered_map<char, unsigned>, 6> six;
 
 	void increaseCategory(int category, int conf);
 	bool loose_isalpha(string s);
@@ -28,7 +28,7 @@ private:
 	string strict2digit(string s);    
 	
 public: 
-    Car();
+	Car();
 	array<unsigned, 7> getConsec7();
 	array<unsigned, 6> getConsec6();
 	string getPlate();
@@ -54,43 +54,39 @@ Car::Car() {
 bool Car::recognize(string &s, int &category) {
 	/*
 	category 0:7-character
-    category 1:6-character(2+4)
-    category 2:6-character(4+2)
-    category 3:6-character(unkown)
+	category 1:6-character(2+4)
+	category 2:6-character(4+2)
+	category 3:6-character(unkown)
 	*/
 	bool imply_category1 = false;
-	if ( s.length() == 8 ) {
+	if( s.length() == 8 ) {
 		//cout << "l == 8" << endl;
 		/*
 		little possibility that the length of the plate is less than 7
-    	convert the string to a 7-character string only when the dominant category is already a 7-character one
+		convert the string to a 7-character string only when the dominant category is already a 7-character one
 		*/
-    	if ( this->dominantCategory == 0 ) {
+		if( this->dominantCategory == 0 ) {
 			string left = strict2alpha(s.substr(0,3)) + strict2digit(s.substr(3,4));
-            string right = strict2alpha(s.substr(1,3)) + strict2digit(s.substr(4,4));
+			string right = strict2alpha(s.substr(1,3)) + strict2digit(s.substr(4,4));
 			unsigned short l = 0;
 			unsigned short r = 0;
-			for ( int i = 0; i < 7; ++i ) {
-                if ( left[i] == this->currentSeven[i] )
-                    l += 1;
-                if ( right[i] == this->currentSeven[i] )
-                    r += 1;
+			for( int i = 0; i < 7; ++i ) {
+				if( left[i] == this->currentSeven[i] )
+					l += 1;
+				if( right[i] == this->currentSeven[i] )
+					r += 1;
 			}
-			if ( l >= r && l > 3 )
-                s = left;
-            else if ( l < r and r > 3 )
-                s = right;
-			else
-				s = "";
-        }
-		else
-			s = "";
+			if( l >= r && l > 3 ) s = left;
+			else if ( l < r and r > 3 ) s = right;
+			else s = "";
+		}
+		else s = "";
 	}
 
-	else if ( s.length() == 7 ) {
-        //cout << "l == 7" << endl;
-        category = 0;
-        s = strict2alpha(s.substr(0,3)) + strict2digit(s.substr(3,4));
+	else if( s.length() == 7 ) {
+		//cout << "l == 7" << endl;
+		category = 0;
+		s = strict2alpha(s.substr(0,3)) + strict2digit(s.substr(3,4));
 	}
 	
 	else if ( s.length() == 6 ) {

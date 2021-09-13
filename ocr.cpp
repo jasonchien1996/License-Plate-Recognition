@@ -8,6 +8,7 @@
 
 using namespace std;
 using namespace cv;
+using namespace std::chrono;
 
 bool compare_ele(const ele&, const ele&);
 bool compare_label(const label&, const label&);
@@ -21,6 +22,7 @@ float IOU(const float tl1[2], const float br1[2], const float tl2[2], const floa
 
 string ocr(network *ocr_net, metadata &ocr_meta, image &im, float ocr_threshold){
 	int num = 0;
+
 	network_predict_image(ocr_net, im);
 	detection *dets = get_network_boxes(ocr_net, im.w, im.h, ocr_threshold, .5f, NULL, 0, &num);
 
@@ -35,12 +37,10 @@ string ocr(network *ocr_net, metadata &ocr_meta, image &im, float ocr_threshold)
 		}
 	}
 	sort(res.begin(), res.end(), compare_ele);
-
 	float w = im.w;
 	float h = im.h;
 	free_image(im);
 	free_detections(dets, num);
-
 	vector<label> L;
 	string lp_str = "";
 	if(res.size()){

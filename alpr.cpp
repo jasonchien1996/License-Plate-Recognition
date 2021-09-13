@@ -24,30 +24,34 @@ bool earlyStop( Car&, Car& );
 
 int main() {
 	
-    cv::VideoCapture capture( "./video/video (3).mp4" );
-    if( !capture.isOpened() ) {
-        printf( "Unable to open file!" );
-        return 0;
-    }		
+	cv::VideoCapture capture( "./video/video (3).mp4" );
+	if( !capture.isOpened() ) {
+		printf( "Unable to open file!" );
+		return 0;
+	}		
 		
 	network *ocr_net = load_network( OCR_NETCFG, OCR_WEIGHTS, 0 );
 	metadata ocr_meta = get_metadata( OCR_DATASET );
+	set_batch_network(ocr_net, 1);
 
 	Car plate;
 	Car currentPlate;
-	vector<cv::Mat> images;
-    while(1) {
+	vector<cv::Mat> images;		
+	
+	while(1) {
 		auto start = high_resolution_clock::now();
-
 		/*
 		cv::Mat source;
-        capture >> source;
+		capture >> source;
 		*/
-
-		/*do inference*/
+	
 		cv::Mat source = cv::imread("./picture/4.jpeg");
+
+		/*do inference*/		
+		image im = mat_to_image(source);		
+		string OCRresult = ocr( ocr_net, ocr_meta, im, OCR_TRESHOLD );
 		
-        cv::Mat a,b,c;//create dummy Mat for space
+		cv::Mat a,b,c;//create dummy Mat for space
 		images.push_back(a);
 		images.push_back(b);
 		images.push_back(c);
@@ -79,83 +83,83 @@ int main() {
 			}
 			
 			if( earlyStop(plate, currentPlate) ) {	
-		        //cout << "early predicted category: " << plate.getDominantCategory() << endl;
-		        //cout << "early predicted result:" << plate.getPlate() << endl;
+				//cout << "early predicted category: " << plate.getDominantCategory() << endl;
+				//cout << "early predicted result:" << plate.getPlate() << endl;
 				//break;
 			}
 		}
 		images.clear();
-        auto stop = high_resolution_clock::now();
-        auto duration = duration_cast<microseconds>(stop - start);
-        printf("%4.3fseconds\n", duration.count()*0.000001);
+		
+		auto stop = high_resolution_clock::now();
+		auto duration = duration_cast<microseconds>(stop - start);
+		printf("%4.3fseconds\n", duration.count()*0.000001);
 		cout << "=================================="<< endl;
-    }
+		
+	}
  	
-    capture.release();    
-    return 0;
+	capture.release();    
+	return 0;
 }
 
 bool earlyStop(Car &plate, Car &current_plate) {
 	bool stop = true;
-    int category = plate.getDominantCategory();
+	int category = plate.getDominantCategory();
 	int current_category = current_plate.getDominantCategory();
-    if ( category != -1 && category == current_category ) {
-        string previous = plate.getPlate();
-        string current = current_plate.vote();
-        //cout << previous << " old" << endl;
+	if( category != -1 && category == current_category ) {
+		string previous = plate.getPlate();
+		string current = current_plate.vote();
+		//cout << previous << " old" << endl;
 		//cout << current << " new" << endl;
 
 		array<unsigned, 7> consec7 = plate.getConsec7();
 		array<unsigned, 6> consec6 = plate.getConsec6();
 		if( category == 0 ) {			
-		    for( int i = 0; i < 7 ; ++i ) {
+			for( int i = 0; i < 7 ; ++i ) {
 				//cout << consec7[i];
 				if( current[i] == '#' ) continue;
-		        if( consec7[i] < CONSEC_CORRECT ) {
+				if( consec7[i] < CONSEC_CORRECT ) {
 					if( previous[i] == '#') {
 						plate.setPlate(i, current[i]);
 						plate.resetConsecutive(i);
 						consec7[i] = 1;
 					}
-		            else if( previous[i] == current[i] ) {
-		                plate.increaseConsecutive(i);
+					else if( previous[i] == current[i] ) {
+						plate.increaseConsecutive(i);
 						consec7[i] += 1;
 					}
-		            else {
-		                if( current[i] != '#' ) {
-		                    plate.setPlate(i, current[i]);
-		                    plate.resetConsecutive(i);
+					else {
+						if( current[i] != '#' ) {
+							plate.setPlate(i, current[i]);
+							plate.resetConsecutive(i);
 							consec7[i] = 1;
 						}
 					}
-		            if( consec7[i] < CONSEC_CORRECT )
-		                stop = false;
+					if( consec7[i] < CONSEC_CORRECT ) stop = false;
 				}
 			}
 		}
 		else if( category == 1 || category == 2) {			
-		    for( int i = 0; i < 6 ; ++i ) {
+			for( int i = 0; i < 6 ; ++i ) {
 				//cout << consec6[i];
 				if( current[i] == '#' ) continue;
-		        if( consec6[i] < CONSEC_CORRECT ) {
+				if( consec6[i] < CONSEC_CORRECT ) {
 					if( previous[i] == '#') {
 						plate.setPlate(i, current[i]);
 						plate.resetConsecutive(i);
 						consec6[i] = 1;
 					}
-		            else if( previous[i] == current[i] ) {
-		                plate.increaseConsecutive(i);
+					else if( previous[i] == current[i] ) {
+						plate.increaseConsecutive(i);
 						consec6[i] += 1;
 					}
-		            else {
-		                if( current[i] != '#' ) {
-		                    plate.setPlate(i, current[i]);
-		                    plate.resetConsecutive(i);
+					else {
+						if( current[i] != '#' ) {
+							plate.setPlate(i, current[i]);
+							plate.resetConsecutive(i);
 							consec6[i] = 1;
 						}
 					}
-		            if( consec6[i] < CONSEC_CORRECT )
-		                stop = false;
+					if( consec6[i] < CONSEC_CORRECT ) stop = false;
 				}
 			}
 		}
@@ -178,5 +182,5 @@ bool earlyStop(Car &plate, Car &current_plate) {
 		}
 		//cout << endl;
 	}
-    return stop;
+	return stop;
 }
