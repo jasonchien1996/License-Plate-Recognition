@@ -1,9 +1,9 @@
 /*
-nvcc alpr.cpp ocr.cpp car.cpp imgproc.cu -o alpr.out -std c++14 -gencode=arch=compute_72,code=sm_72 -I/usr/local/include/opencv4 -I/usr/local/include/onnxruntime -I/home/pomchi/Desktop/alpr/darknet/include -L/usr/local/lib -lopencv_core -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_dnn -lopencv_cudaimgproc -lopencv_highgui -lopencv_cudaarithm -lopencv_cudawarping -lopencv_cudafilters -ldarknet -lonnxruntime
+nvcc alpr.cpp util.cpp car.cpp imgproc.cu -o alpr.out -std c++14 -gencode=arch=compute_72,code=sm_72 -I/usr/local/include/opencv4 -I/usr/local/include/onnxruntime -I/home/pomchi/Desktop/alpr/darknet/include -L/usr/local/lib -lopencv_core -lopencv_videoio -lopencv_imgcodecs -lopencv_imgproc -lopencv_dnn -lopencv_cudaimgproc -lopencv_highgui -lopencv_cudaarithm -lopencv_cudawarping -lopencv_cudafilters -ldarknet -lonnxruntime
 */
 
-#include "ocr.hpp"
 #include "car.hpp"
+#include "util.hpp"
 #include "imgproc.cuh"
 #include "darknet.h"
 #include <string>
@@ -16,14 +16,17 @@ nvcc alpr.cpp ocr.cpp car.cpp imgproc.cu -o alpr.out -std c++14 -gencode=arch=co
 #define instanceName "plate-detector-inference"
 #define modelFilepath "./checkpoints/custom-416.onnx"
 
+
 //for darknet
 #define OCR_TRESHOLD .3f
 
+#define iou_threshold .45f
+#define conf_threshold .5f
 #define CONSEC_CORRECT 5
 
-using std::cout;
-using std::endl;
-using std::vector;
+using namespace cv;
+using namespace std;
+using namespace util;
 using namespace std::chrono;
 
 char OCR_WEIGHTS[] = "ocr/ocr-net.weights";
@@ -31,14 +34,14 @@ char OCR_NETCFG[]  = "ocr/ocr-net.cfg";
 char OCR_DATASET[] = "ocr/ocr-net.data";
 
 template <typename T>
-std::ostream& operator<<(std::ostream& os, const vector<T>& v);
-std::ostream& operator<<(std::ostream& os, const ONNXTensorElementDataType& type);
+ostream& operator<<(ostream& os, const vector<T>& v);
+ostream& operator<<(ostream& os, const ONNXTensorElementDataType& type);
 bool earlyStop( Car&, Car& );
 
-int main() {	
-	cv::VideoCapture capture( "./video/video (3).mp4" );
+int main() {
+	VideoCapture capture( "./video/video (3).mp4" );
 	if( !capture.isOpened() ) {
-		printf( "Unable to open file!" );
+		cout << "Unable to open file!";
 		return 0;
 	}		
 	
@@ -48,117 +51,151 @@ int main() {
 	else cout << "Inference Execution Provider: CPU\n";
 	
 	Ort::Env env(OrtLoggingLevel::ORT_LOGGING_LEVEL_WARNING, instanceName);
-    Ort::SessionOptions sessionOptions;
+	Ort::SessionOptions sessionOptions;
 	//sessionOptions.SetIntraOpNumThreads(1);
-    if (useCUDA)
-    {
-        // Using CUDA backend
-        // https://github.com/microsoft/onnxruntime/blob/v1.8.2/include/onnxruntime/core/session/onnxruntime_cxx_api.h#L329
-        OrtCUDAProviderOptions cuda_options;
+	
+	if (useCUDA) {
+		// Using CUDA backend
+		// https://github.com/microsoft/onnxruntime/blob/v1.8.2/include/onnxruntime/core/session/onnxruntime_cxx_api.h#L329
+		OrtCUDAProviderOptions cuda_options;
 		cuda_options.device_id = 0;
-        sessionOptions.AppendExecutionProvider_CUDA(cuda_options);
+		sessionOptions.AppendExecutionProvider_CUDA(cuda_options);
     }
-
-    // Sets graph optimization level
-    // Available levels are
-    // ORT_DISABLE_ALL -> To disable all optimizations
-    // ORT_ENABLE_BASIC -> To enable basic optimizations (Such as redundant node
-    // removals) ORT_ENABLE_EXTENDED -> To enable extended optimizations
-    // (Includes level 1 + more complex optimizations like node fusions)
-    // ORT_ENABLE_ALL -> To Enable All possible optimizations
-    sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
-    Ort::Session session(env, modelFilepath, sessionOptions);
+	
+	// Sets graph optimization level
+	// Available levels are
+	// ORT_DISABLE_ALL -> To disable all optimizations
+	// ORT_ENABLE_BASIC -> To enable basic optimizations (Such as redundant node
+	// removals) ORT_ENABLE_EXTENDED -> To enable extended optimizations
+	// (Includes level 1 + more complex optimizations like node fusions)
+	// ORT_ENABLE_ALL -> To Enable All possible optimizations
+	sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+	Ort::Session session(env, modelFilepath, sessionOptions);
 
 	Ort::AllocatorWithDefaultOptions allocator;
 
-    size_t numInputNodes = session.GetInputCount();
-    size_t numOutputNodes = session.GetOutputCount();
+	size_t numInputNodes = session.GetInputCount();
+	size_t numOutputNodes = session.GetOutputCount();
 
-    cout << "Number of Input Nodes: " << numInputNodes << std::endl;
-    cout << "Number of Output Nodes: " << numOutputNodes << std::endl;
+	cout << "Number of Input Nodes: " << numInputNodes << endl;
+	cout << "Number of Output Nodes: " << numOutputNodes << endl;
 
-    const char* inputName = session.GetInputName(0, allocator);
-    cout << "Input Name: " << inputName << std::endl;
+	const char* inputName = session.GetInputName(0, allocator);
+	cout << "Input Name: " << inputName << endl;
 
-    Ort::TypeInfo inputTypeInfo = session.GetInputTypeInfo(0);
-    auto inputTensorInfo = inputTypeInfo.GetTensorTypeAndShapeInfo();
+	Ort::TypeInfo inputTypeInfo = session.GetInputTypeInfo(0);
+	auto inputTensorInfo = inputTypeInfo.GetTensorTypeAndShapeInfo();
 
-    ONNXTensorElementDataType inputType = inputTensorInfo.GetElementType();
-    cout << "Input Type: " << inputType << std::endl;
+	ONNXTensorElementDataType inputType = inputTensorInfo.GetElementType();
+	cout << "Input Type: " << inputType << endl;
 
-    vector<int64_t> inputDims = inputTensorInfo.GetShape();
-	inputDims[0] = 1;
-    cout << "Input Dimensions: " << inputDims << std::endl;
+	vector<int64_t> inputDims = inputTensorInfo.GetShape();
+	cout << "Input Dimensions: " << inputDims << endl;
 
-    const char* outputName = session.GetOutputName(0, allocator);
-    cout << "Output Name: " << outputName << std::endl;
+	const char* outputName = session.GetOutputName(0, allocator);
+	cout << "Output Name: " << outputName << endl;
 
-    Ort::TypeInfo outputTypeInfo = session.GetOutputTypeInfo(0);
-    auto outputTensorInfo = outputTypeInfo.GetTensorTypeAndShapeInfo();
+	Ort::TypeInfo outputTypeInfo = session.GetOutputTypeInfo(0);
+	auto outputTensorInfo = outputTypeInfo.GetTensorTypeAndShapeInfo();
 
-    ONNXTensorElementDataType outputType = outputTensorInfo.GetElementType();
-    cout << "Output Type: " << outputType << std::endl;
+	ONNXTensorElementDataType outputType = outputTensorInfo.GetElementType();
+	cout << "Output Type: " << outputType << endl;
 
-    vector<int64_t> outputDims = outputTensorInfo.GetShape();
-    cout << "Output Dimensions: " << outputDims << std::endl;
-	cout << std::endl;
+	vector<int64_t> outputDims = outputTensorInfo.GetShape();
+	cout << "Output Dimensions: " << outputDims << endl << endl;
 
 	//initialize darknet
 	cout << "initialize darknet\n"; 
 	network *ocr_net = load_network( OCR_NETCFG, OCR_WEIGHTS, 0 );
 	metadata ocr_meta = get_metadata( OCR_DATASET );
 	set_batch_network(ocr_net, 1);
-	
+
 	Car plate;
 	Car currentPlate;
-	vector<cv::Mat> images;
+	vector<Mat> images;
 	while(1) {
 		auto start = high_resolution_clock::now();
 
-		cv::Mat imageBGR, resizedImageBGR, resizedImageRGB, resizedImage, preprocessedImage;
-		imageBGR = cv::imread("./picture/4.jpeg");
+		Mat imageBGR, resizedImageBGR, resizedImageRGB, resizedImage, preprocessedImage;
 		//capture >> imageBGR;
-		cv::resize(imageBGR, resizedImageBGR, cv::Size(416, 416), cv::InterpolationFlags::INTER_CUBIC);
-		cv::cvtColor(resizedImageBGR, resizedImageRGB, cv::ColorConversionCodes::COLOR_BGR2RGB);
-		resizedImageRGB.convertTo(resizedImage, CV_32F, 1.0 / 255);
-		/*
-		cv::imshow("resizedImage", resizedImage);
-		cv::waitKey(0);
-		*/
+		imageBGR = cv::imread("./picture/4.jpeg");
+		
+		resize(imageBGR, resizedImageBGR, Size(416, 416), InterpolationFlags::INTER_CUBIC);
+		resizedImageBGR.convertTo(resizedImage, CV_32F, 1.0 / 255);
+		dnn::blobFromImage(resizedImage, preprocessedImage);
 
-		/*
-		//not sure if needed
-		cv::Mat channels[3];
-		cv::split(resizedImage, channels);
-		cv::merge(channels, 3, resizedImage);// HWC to CHW    
-		*/
-		cv::dnn::blobFromImage(resizedImage, preprocessedImage);
-		
 		size_t inputTensorSize = 519168;//416*416*3=519168
-		vector<float> inputTensorValues(inputTensorSize);
-		inputTensorValues.assign(preprocessedImage.begin<float>(), preprocessedImage.end<float>());
-		
+		vector<float> temp(inputTensorSize);
+		temp.assign(preprocessedImage.begin<float>(), preprocessedImage.end<float>());
+
+		vector<float> inputTensorValues(inputTensorSize);		
+		for(int i = 0; i < 173056; ++i){		
+			inputTensorValues[i*3] = temp[i];
+			inputTensorValues[i*3+1] = temp[i+173056];
+			inputTensorValues[i*3+2] = temp[i+346112];
+		}
+
 		vector<const char*> inputNames{inputName};
 		vector<const char*> outputNames{outputName};
 		vector<Ort::Value> inputTensors;
-
+		inputDims[0] = 1;//batch size
 		Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
 		inputTensors.push_back(Ort::Value::CreateTensor<float>(memoryInfo, inputTensorValues.data(), inputTensorSize, inputDims.data(), inputDims.size()));
-		
-		auto outputTensors = session.Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(), 1, outputNames.data(), 1);
-		cout << outputTensors[0].GetTensorTypeAndShapeInfo().GetShape() << endl;
-		//do cropping
+		float* floatarrinput = inputTensors[0].GetTensorMutableData<float>();
 
-		cv::Mat a,b,c;//create dummy Mat for space
+		auto outputTensors = session.Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(), 1, outputNames.data(), 1);
+		auto info = outputTensors[0].GetTensorTypeAndShapeInfo();	
+		cout << "output tensor shape " << info.GetShape() << endl;
+
+		int num_boxes = int(info.GetElementCount()*0.2);
+		float* floatarr = outputTensors[0].GetTensorMutableData<float>();
+		vector<util::box> boxes;
+		for(int i = 0; i < num_boxes; ++i) {
+			int row = i*5;
+			if( floatarr[row+4] < conf_threshold) continue;
+			util::box *b = create_box(floatarr[row], floatarr[row+1], floatarr[row+2], floatarr[row+3], floatarr[row+4]);
+			boxes.push_back(*b);
+			delete b; 
+		}
+		
+		if(boxes.size() == 0) continue;
+		
+		nms(boxes, iou_threshold);
+		
+		if(boxes.size() > 1) {
+			cout << "#(box): " << boxes.size() << endl;			
+			continue;
+		}
+		
+		Mat croppedBGR, croppedRGB;
+		util::box &bb = boxes[0];
+		//cout << "[" << bb.tl[0] << "," << bb.tl[1] << "] [" << bb.br[0] << "," << bb.br[1] << "]" << endl;
+		bb.tl[0] = (bb.tl[0] < 0.f) ? 0.f:bb.tl[0];
+		bb.tl[1] = (bb.tl[1] < 0.f) ? 0.f:bb.tl[1];
+		bb.br[0] = (bb.br[0] > 0.f) ? 1.f:bb.br[0];
+		bb.br[1] = (bb.br[1] > 0.f) ? 1.f:bb.br[1];
+		int x = int(bb.tl[0]*imageBGR.cols);
+		int y = int(bb.tl[1]*imageBGR.rows);
+		if(x-5 > 0) x -=5;
+		if(y-5 > 0) y -=5;
+		int width = int((bb.br[0]-bb.tl[0])*imageBGR.cols);
+		int height = int((bb.br[1]-bb.tl[1])*imageBGR.rows);
+		if(x+width+10 < imageBGR.cols) width+=5;
+		if(y+height+10 < imageBGR.rows) height+=5;
+		Rect myROI(x, y, width, height);	
+		croppedBGR = imageBGR(myROI);
+		//imshow("croppedBGR", croppedBGR);
+		//waitKey(0);
+
+		cvtColor(croppedBGR, croppedRGB, ColorConversionCodes::COLOR_BGR2RGB);
+
+		Mat a,b;//create dummy Mat for space
 		images.push_back(a);
 		images.push_back(b);
-		images.push_back(c);
-		if( process(resizedImageBGR, &images) ) { //resizedImageBGR should be replaced by croppedImage
-			for( cv::Mat &img : images) {
-				if( img.type() == 0 ) continue;
-				
-				//cv::imshow("img", img);
-				//cv::waitKey(0);
+		if( process(croppedRGB, &images) ) {
+			for( cv::Mat &img : images) {		
+				cv::imshow("img", img);
+				cv::waitKey(0);
 				
 				image im = mat_to_image(img);
 				string OCRresult = ocr( ocr_net, ocr_meta, im, OCR_TRESHOLD );
@@ -187,7 +224,7 @@ int main() {
 			}
 		}
 		images.clear();
-		
+
 		auto stop = high_resolution_clock::now();
 		auto duration = duration_cast<microseconds>(stop - start);
 		printf("%4.3fseconds\n", duration.count()*0.000001);
