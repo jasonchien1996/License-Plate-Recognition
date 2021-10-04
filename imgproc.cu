@@ -33,7 +33,7 @@ float hough(cv::cuda::GpuMat*, int, int);
 vector<cv::Point> getMaxContour(cv::Mat*);
 vector<vector<cv::Point>> denoise(vector<vector<cv::Point>>*, int, int, float, float, float, float);
 
-bool process(cv::Mat cpu, vector<cv::Mat> *result_images) {
+bool process(cv::Mat &cpu, vector<cv::Mat> *result_images) {
     cv::cuda::GpuMat gpu;
     gpu.upload(cpu);
     cv::cuda::cvtColor(gpu, gpu, cv::COLOR_RGB2GRAY);
@@ -92,14 +92,13 @@ bool process(cv::Mat cpu, vector<cv::Mat> *result_images) {
     }
 
 	if( angle != 0.f ) rotate(&cpu, angle);
-	
-	shared_cpu.copyTo((*result_images)[0]);
-	cpu.copyTo((*result_images)[1]);
 
-	if(crop(&shared_gpu, &shared_cpu, &cpu))
-		cpu.copyTo((*result_images)[2]);
+	cpu.copyTo((*result_images)[0]);
+	bool isCrop = crop(&shared_gpu, &shared_cpu, &cpu);
+	
+	if(isCrop) cpu.copyTo((*result_images)[1]);
 	else result_images->pop_back();
- 
+ 	
 	cudaFree(unified_ptr);
 
     return true;
