@@ -12,8 +12,6 @@ Car::Car() {
 	confidence = {0, 0, 0};
 	currentSeven = {'#', '#', '#', '#', '#', '#', '#'};
 	currentSix = {'#', '#', '#', '#', '#', '#'};
-	consec7 = {0, 0, 0, 0, 0, 0, 0};
-	consec6 = {0, 0, 0, 0, 0, 0};
 }
 
 bool Car::recognize(string &s, int &category) {
@@ -279,21 +277,6 @@ int Car::getDominantCategory(){
     return this->dominantCategory;
 }
 
-string Car::getPlate() {
-    if ( this->dominantCategory == 0) { 
-		string plate(std::begin(this->currentSeven), std::end(this->currentSeven));
-        return plate;
-	}
-    else if ( this->dominantCategory == 1 || this->dominantCategory == 2 ) {
-		string plate(std::begin(this->currentSix), std::end(this->currentSix));
-        return plate;
-	}
-    else {
-		cout <<"error in getPlate()\n";
-		exit(1);
-	}
-}
-
 string Car::vote() {
 	string res = "";
     if ( this->dominantCategory == 0 ) {
@@ -323,47 +306,6 @@ string Car::vote() {
 		}
 	}
     return res;
-}
-
-array<unsigned, 7> Car::getConsec7() {
-	return this->consec7;
-}
-
-array<unsigned, 6> Car::getConsec6() {
-	return this->consec6;
-}
-
-void Car::setPlate(int index, char value) {
-    if ( this->dominantCategory == 0 )
-        this->currentSeven[index] = value;
-    else if ( this->dominantCategory == 1 || this->dominantCategory == 2 ) 
-        this->currentSix[index] = value;
-    else {
-		cout << "error in setPlate()\n";
-		exit(1);
-	}
-}
-
-void Car::resetConsecutive(int index) {
-    if ( this->dominantCategory == 0 )
-        this->consec7[index] = 1;
-    else if ( this->dominantCategory == 1 || this->dominantCategory == 2)
-        this->consec6[index] = 1;
-    else {
-        cout << "error in resetConsecutive()\n";
-		exit(1);
-	}
-}
-
-void Car::increaseConsecutive(int index){
-    if ( this->dominantCategory == 0 )
-        this->consec7[index] += 1;
-    else if ( this->dominantCategory == 1 || this->dominantCategory == 2 )
-        this->consec6[index] += 1;
-    else {
-		cout << "error in increaseConsecutive()\n";
-		exit(1);
-	}
 }
 
 bool Car::loose_isalpha(string s) {

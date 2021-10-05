@@ -9,9 +9,7 @@ class Car {
 private:
 	int dominantCategory;
 	array<unsigned, 3> category;
-	array<unsigned, 3> confidence;    
-	array<unsigned, 7> consec7;
-	array<unsigned, 6> consec6;
+	array<unsigned, 3> confidence;
 	array<char, 7> currentSeven;
 	array<char, 6> currentSix;
 	array<unordered_map<char, unsigned>, 7> seven;
@@ -25,18 +23,12 @@ private:
 	char convert2alpha(char ch);
 	char convert2digit(char ch);
 	string strict2alpha(string s);
-	string strict2digit(string s);    
-	
+	string strict2digit(string s);
+
 public: 
 	Car();
-	array<unsigned, 7> getConsec7();
-	array<unsigned, 6> getConsec6();
-	string getPlate();
 	string vote();
-	void setCounter(string detection, int category, int conf, bool imply_category1);
-	void setPlate(int index, char value);
-	void resetConsecutive(int index);
-	void increaseConsecutive(int index);
-	bool recognize(string &result, int &category);	
 	int getDominantCategory();	
+	bool recognize(string &result, int &category);
+	void setCounter(string detection, int category, int conf, bool imply_category1);
 };

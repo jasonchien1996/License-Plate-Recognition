@@ -15,14 +15,14 @@ nvcc alpr.cpp util.cpp car.cpp imgproc.cu -o alpr.out -std c++14 -gencode=arch=c
 #define useCUDA true
 #define instanceName "plate-detector-inference"
 #define modelFilepath "./checkpoints/custom-416.onnx"
-
+#define iou_threshold .45f
+#define conf_threshold .5f
 
 //for darknet
 #define OCR_TRESHOLD .3f
 
-#define iou_threshold .45f
-#define conf_threshold .5f
 #define CONSEC_CORRECT 5
+#define MAX_FRAME 25
 
 using namespace cv;
 using namespace std;
@@ -36,7 +36,7 @@ char OCR_DATASET[] = "ocr/ocr-net.data";
 template <typename T>
 ostream& operator<<(ostream& os, const vector<T>& v);
 ostream& operator<<(ostream& os, const ONNXTensorElementDataType& type);
-bool earlyStop( Car&, Car& );
+bool stop(int, string&);
 
 int main() {
 	VideoCapture capture( "./video/video (3).mp4" );
@@ -65,11 +65,10 @@ int main() {
 	// Sets graph optimization level
 	// Available levels are
 	// ORT_DISABLE_ALL -> To disable all optimizations
-	// ORT_ENABLE_BASIC -> To enable basic optimizations (Such as redundant node
-	// removals) ORT_ENABLE_EXTENDED -> To enable extended optimizations
-	// (Includes level 1 + more complex optimizations like node fusions)
+	// ORT_ENABLE_BASIC -> To enable basic optimizations (Such as redundant node removals)
+	// ORT_ENABLE_EXTENDED -> To enable extended optimizations (Includes level 1 + more complex optimizations like node fusions)
 	// ORT_ENABLE_ALL -> To Enable All possible optimizations
-	sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
+	sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 	Ort::Session session(env, modelFilepath, sessionOptions);
 
 	Ort::AllocatorWithDefaultOptions allocator;
@@ -111,14 +110,13 @@ int main() {
 	set_batch_network(ocr_net, 1);
 
 	Car plate;
-	Car currentPlate;
 	vector<Mat> images;
 	while(1) {
-		auto start = high_resolution_clock::now();
+		auto Start = high_resolution_clock::now();
 
 		Mat imageBGR, resizedImageBGR, resizedImageRGB, resizedImage, preprocessedImage;
-		//capture >> imageBGR;
-		imageBGR = cv::imread("./picture/4.jpeg");
+		if( !capture.read(imageBGR) ) continue;		
+		//imageBGR = cv::imread("./picture/1.jpg");
 		
 		resize(imageBGR, resizedImageBGR, Size(416, 416), InterpolationFlags::INTER_CUBIC);
 		resizedImageBGR.convertTo(resizedImage, CV_32F, 1.0 / 255);
@@ -145,7 +143,7 @@ int main() {
 
 		auto outputTensors = session.Run(Ort::RunOptions{nullptr}, inputNames.data(), inputTensors.data(), 1, outputNames.data(), 1);
 		auto info = outputTensors[0].GetTensorTypeAndShapeInfo();	
-		cout << "output tensor shape " << info.GetShape() << endl;
+		//cout << "output tensor shape " << info.GetShape() << endl;
 
 		int num_boxes = int(info.GetElementCount()*0.2);
 		float* floatarr = outputTensors[0].GetTensorMutableData<float>();
@@ -158,164 +156,229 @@ int main() {
 			delete b; 
 		}
 		
-		if(boxes.size() == 0) continue;
-		
+		if(boxes.size() == 0) {
+			cout << "no plate found" << endl;
+			auto Stop = high_resolution_clock::now();
+			auto duration = duration_cast<microseconds>(Stop - Start);
+			printf("%4.3fseconds\n", duration.count()*0.000001);
+			cout << "=================================="<< endl;
+			continue;
+		}
+
 		nms(boxes, iou_threshold);
 		
 		if(boxes.size() > 1) {
-			cout << "#(box): " << boxes.size() << endl;			
+			cout << boxes.size() << "plates found" << endl;
+			auto Stop = high_resolution_clock::now();
+			auto duration = duration_cast<microseconds>(Stop - Start);
+			printf("%4.3fseconds\n", duration.count()*0.000001);
+			cout << "=================================="<< endl;
 			continue;
 		}
 		
-		Mat croppedBGR, croppedRGB;
 		util::box &bb = boxes[0];
-		//cout << "[" << bb.tl[0] << "," << bb.tl[1] << "] [" << bb.br[0] << "," << bb.br[1] << "]" << endl;
-		bb.tl[0] = (bb.tl[0] < 0.f) ? 0.f:bb.tl[0];
-		bb.tl[1] = (bb.tl[1] < 0.f) ? 0.f:bb.tl[1];
-		bb.br[0] = (bb.br[0] > 0.f) ? 1.f:bb.br[0];
-		bb.br[1] = (bb.br[1] > 0.f) ? 1.f:bb.br[1];
 		int x = int(bb.tl[0]*imageBGR.cols);
 		int y = int(bb.tl[1]*imageBGR.rows);
-		if(x-5 > 0) x -=5;
-		if(y-5 > 0) y -=5;
 		int width = int((bb.br[0]-bb.tl[0])*imageBGR.cols);
 		int height = int((bb.br[1]-bb.tl[1])*imageBGR.rows);
-		if(x+width+10 < imageBGR.cols) width+=5;
-		if(y+height+10 < imageBGR.rows) height+=5;
-		Rect myROI(x, y, width, height);	
-		croppedBGR = imageBGR(myROI);
+		
+		if( x + width + 5 <= imageBGR.cols) width += 5;
+		if( y + height + 5 <= imageBGR.rows) height += 5;
+		if( x - 5 > 0) {
+			x -= 5;
+			width += 5;
+		}
+		if( y - 5 > 0) {
+			y -= 5;
+			height += 5;
+		}
+
+		Rect myROI(x, y, width, height);
+		Mat croppedBGR = imageBGR(myROI);
+		if(croppedBGR.cols > 416) resize(croppedBGR, croppedBGR, Size(416, 208), InterpolationFlags::INTER_CUBIC);
 		//imshow("croppedBGR", croppedBGR);
 		//waitKey(0);
-
-		cvtColor(croppedBGR, croppedRGB, ColorConversionCodes::COLOR_BGR2RGB);
 
 		Mat a,b;//create dummy Mat for space
 		images.push_back(a);
 		images.push_back(b);
-		if( process(croppedRGB, &images) ) {
+		static int num_frame = 0;
+		if( process(croppedBGR, &images) ) {
 			for( cv::Mat &img : images) {		
-				cv::imshow("img", img);
-				cv::waitKey(0);
-				
+				//cv::imshow("img", img);
+				//cv::waitKey(0);
 				image im = mat_to_image(img);
-				string OCRresult = ocr( ocr_net, ocr_meta, im, OCR_TRESHOLD );
-
-				if( OCRresult.length() < 6 || OCRresult.length() > 8 ) continue;
-				//cout << "Darknet: " << OCRresult << endl;
 				
+				string OCRresult;
+				int conf;
+				ocr( ocr_net, ocr_meta, im, OCR_TRESHOLD , OCRresult, conf);
+				
+				if( OCRresult.length() < 6 || OCRresult.length() > 7 ) {
+					cout << "ocr: " << OCRresult << endl;
+					auto Stop = high_resolution_clock::now();
+					auto duration = duration_cast<microseconds>(Stop - Start);
+					printf("%4.3fseconds\n", duration.count()*0.000001);
+					cout << "=================================="<< endl;
+					continue;
+				}
 				int category = -1;
 
 				bool imply_category1 = plate.recognize( OCRresult, category );
-				cout << "category: " << category << endl; 
-				cout << "isCat1: " << imply_category1 << endl;
-				cout << "OCRresult: " << OCRresult << endl;
-				cout << "----------------------------------"<< endl;
+				if ( OCRresult == "") {
+					cout << "ocr: " << OCRresult << endl;
+					auto Stop = high_resolution_clock::now();
+					auto duration = duration_cast<microseconds>(Stop - Start);
+					printf("%4.3fseconds\n", duration.count()*0.000001);
+					cout << "=================================="<< endl;
+					continue;
+				}
 
-				if ( OCRresult == "") continue;
-				int conf = 0;
+				cout << "ocr: " << OCRresult << endl;
+				cout << "category: " << category << endl;
+				cout << "confidence: " << conf << endl;	
+				//cout << "imply_category1: " << imply_category1 << endl;
+				
 				plate.setCounter( OCRresult, category, conf, imply_category1 );
-				currentPlate.setCounter( OCRresult, category, conf, imply_category1 );			
+				num_frame += 1;
+
+				if( stop(category, OCRresult) ) return 0;
+				else if (num_frame == MAX_FRAME) {	
+					cout << "predicted category: " << plate.getDominantCategory() << endl;
+					cout << "predicted result:" << plate.vote() << endl;
+					return 0;
+				}
 			}
-			
-			if( earlyStop(plate, currentPlate) ) {	
-				//cout << "early predicted category: " << plate.getDominantCategory() << endl;
-				//cout << "early predicted result:" << plate.getPlate() << endl;
-				//break;
-			}
+			auto Stop = high_resolution_clock::now();
+			auto duration = duration_cast<microseconds>(Stop - Start);
+			printf("%4.3fseconds\n", duration.count()*0.000001);
+			cout << "=================================="<< endl;		
 		}
 		images.clear();
-
-		auto stop = high_resolution_clock::now();
-		auto duration = duration_cast<microseconds>(stop - start);
-		printf("%4.3fseconds\n", duration.count()*0.000001);
-		cout << "=================================="<< endl;	
 	} 	
 	capture.release();    
 	return 0;
 }
 
-bool earlyStop(Car &plate, Car &current_plate) {
-	bool stop = true;
-	int category = plate.getDominantCategory();
-	int current_category = current_plate.getDominantCategory();
-	if( category != -1 && category == current_category ) {
-		string previous = plate.getPlate();
-		string current = current_plate.vote();
-		//cout << previous << " old" << endl;
-		//cout << current << " new" << endl;
+bool stop(int category, string &result) {
+	bool Stop = true;
+	static array<char, 7> currentSeven = {'#', '#', '#', '#', '#', '#', '#'};
+	static array<char, 6> currentSix = {'#', '#', '#', '#', '#', '#'};
+	static array<unsigned, 7> consec7 = {0, 0, 0, 0, 0, 0, 0};
+	static array<unsigned, 6> consec6 = {0, 0, 0, 0, 0, 0};
 
-		array<unsigned, 7> consec7 = plate.getConsec7();
-		array<unsigned, 6> consec6 = plate.getConsec6();
-		if( category == 0 ) {			
+	switch(category) {
+		case 0:
+			for( int i = 0; i < 7 ; ++i ) cout << currentSeven[i];
+			cout << endl;
+			for( int i = 0; i < 7 ; ++i ) cout << consec7[i];
+			cout << endl;
+
 			for( int i = 0; i < 7 ; ++i ) {
-				//cout << consec7[i];
-				if( current[i] == '#' ) continue;
+				if( result[i] == '#' ) continue;
 				if( consec7[i] < CONSEC_CORRECT ) {
-					if( previous[i] == '#') {
-						plate.setPlate(i, current[i]);
-						plate.resetConsecutive(i);
+					if( currentSeven[i] == '#') {
+						currentSeven[i] = result[i];
 						consec7[i] = 1;
 					}
-					else if( previous[i] == current[i] ) {
-						plate.increaseConsecutive(i);
+					else if( currentSeven[i] == result[i] )
 						consec7[i] += 1;
-					}
 					else {
-						if( current[i] != '#' ) {
-							plate.setPlate(i, current[i]);
-							plate.resetConsecutive(i);
-							consec7[i] = 1;
-						}
+						currentSeven[i] = result[i];
+						consec7[i] = 1;
 					}
-					if( consec7[i] < CONSEC_CORRECT ) stop = false;
+					if( consec7[i] < CONSEC_CORRECT ) Stop = false;
 				}
 			}
-		}
-		else if( category == 1 || category == 2) {			
+
+			for( int i = 0; i < 7 ; ++i ) cout << currentSeven[i];
+			cout << endl;
+			for( int i = 0; i < 7 ; ++i ) cout << consec7[i];
+			cout << endl;
+
+			if(Stop) {
+				cout << "predicted result: ";
+				for( int i = 0; i < 7 ; ++i ) cout << currentSeven[i];
+				cout << endl;
+			}
+			break;
+		case 1:
+		case 2:
+			for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+			cout << endl;
+			for( int i = 0; i < 6 ; ++i ) cout << consec6[i];
+			cout << endl;
+
 			for( int i = 0; i < 6 ; ++i ) {
-				//cout << consec6[i];
-				if( current[i] == '#' ) continue;
+				if( result[i] == '#' ) continue;
 				if( consec6[i] < CONSEC_CORRECT ) {
-					if( previous[i] == '#') {
-						plate.setPlate(i, current[i]);
-						plate.resetConsecutive(i);
+					if( currentSix[i] == '#') {
+						currentSix[i] = result[i];
 						consec6[i] = 1;
 					}
-					else if( previous[i] == current[i] ) {
-						plate.increaseConsecutive(i);
+					else if( currentSix[i] == result[i] )
 						consec6[i] += 1;
-					}
 					else {
-						if( current[i] != '#' ) {
-							plate.setPlate(i, current[i]);
-							plate.resetConsecutive(i);
-							consec6[i] = 1;
-						}
+						currentSix[i] = result[i];
+						consec6[i] = 1;
 					}
-					if( consec6[i] < CONSEC_CORRECT ) stop = false;
+					if( consec6[i] < CONSEC_CORRECT ) Stop = false;
 				}
 			}
-		}
-		else {
-			cout << "\nerror in earlyStop()\n";
+
+			for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+			cout << endl;
+			for( int i = 0; i < 6 ; ++i ) cout << consec6[i];
+			cout << endl;
+
+			if(Stop) {
+				cout << "predicted category: " << category << endl;
+				cout << "predicted result: ";
+				for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+				cout << endl;
+			}
+			break;
+		case 3:
+			for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+			cout << endl;
+			for( int i = 0; i < 6 ; ++i ) cout << consec6[i];
+			cout << endl;
+
+			for( int i = 2; i < 4 ; ++i ) {
+				if( result[i] == '#' ) continue;
+				if( consec6[i] < CONSEC_CORRECT ) {
+					if( currentSix[i] == '#') {
+						currentSix[i] = result[i];
+						consec6[i] = 1;
+					}
+					else if( currentSix[i] == result[i] )
+						consec6[i] += 1;
+					else {
+						currentSix[i] = result[i];
+						consec6[i] = 1;
+					}
+				}
+			}
+			for( int i = 0; i < 6 ; ++i ) {
+				if( consec6[i] < CONSEC_CORRECT ) Stop = false;
+			}
+
+			for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+			cout << endl;
+			for( int i = 0; i < 6 ; ++i ) cout << consec6[i];
+			cout << endl;
+
+			if(Stop) {
+				cout << "predicted category: " << category << endl;
+				cout << "predicted result: ";
+				for( int i = 0; i < 6 ; ++i ) cout << currentSix[i];
+				cout << endl;
+			}
+			break;
+		default:
+			cout << "error in stop()!\n";
 			exit(1);
-		}
-		//cout << endl;
-		consec7 = plate.getConsec7();
-		consec6 = plate.getConsec6();
-		if( category == 0 ) {
-			for( int i = 0; i < 7; ++i ) {    	
-				//cout << consec7[i];
-			}
-		}
-		else if( category == 1 || category == 2) {
-			for( int i = 0; i < 6; ++i ) {    	
-				//cout << consec6[i];
-			}
-		}
-		//cout << endl;
 	}
-	return stop;
+	return Stop;
 }
 
 template <typename T>

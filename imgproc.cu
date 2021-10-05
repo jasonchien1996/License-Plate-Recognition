@@ -36,9 +36,9 @@ vector<vector<cv::Point>> denoise(vector<vector<cv::Point>>*, int, int, float, f
 bool process(cv::Mat &cpu, vector<cv::Mat> *result_images) {
     cv::cuda::GpuMat gpu;
     gpu.upload(cpu);
-    cv::cuda::cvtColor(gpu, gpu, cv::COLOR_RGB2GRAY);
+    cv::cuda::cvtColor(gpu, gpu, cv::COLOR_BGR2GRAY);
     cv::cuda::normalize(gpu, gpu, 0, 255, cv::NORM_MINMAX, -1);
-	
+
     //allocate unified memory
     int height = gpu.rows;
     int width = gpu.cols;
@@ -47,7 +47,7 @@ bool process(cv::Mat &cpu, vector<cv::Mat> *result_images) {
     cv::Mat shared_cpu(height, width, CV_8UC1, unified_ptr);
     cv::cuda::GpuMat shared_gpu(height, width, CV_8UC1, unified_ptr);
     gpu.copyTo(shared_gpu);
-    
+
 	contrast(&shared_gpu, 200.f);
 
     int blockSize = shared_gpu.cols;
@@ -65,8 +65,10 @@ bool process(cv::Mat &cpu, vector<cv::Mat> *result_images) {
     cv::Scalar color(200);
     cv::drawContours(shared_cpu, plateContour, 0, color, 5);
     imshow(shared_cpu);
-    */    
+    */
+
     mask(&shared_cpu, &plateContour);
+
     //shrink(&shared_gpu, 2.f);
     cv::cuda::bitwise_not(shared_gpu, shared_gpu);    
     vector<vector<cv::Point>> contours;
@@ -94,11 +96,12 @@ bool process(cv::Mat &cpu, vector<cv::Mat> *result_images) {
 	if( angle != 0.f ) rotate(&cpu, angle);
 
 	cpu.copyTo((*result_images)[0]);
+
 	bool isCrop = crop(&shared_gpu, &shared_cpu, &cpu);
-	
+
 	if(isCrop) cpu.copyTo((*result_images)[1]);
 	else result_images->pop_back();
- 	
+
 	cudaFree(unified_ptr);
 
     return true;
@@ -230,12 +233,12 @@ void mask(cv::Mat *cp, std::vector<std::vector<cv::Point>> *contours){
 }
 
 void shrink(cv::cuda::GpuMat *gp, float level){
-    int h = (int)((*gp).cols*0.014);
+    int h = (int)((*gp).cols*0.014*level);
     if(h == 0) h += 1;
     int w = (int)(0.5*h);
     if(w == 0) w += 1;
 	//imshow(gp);
-    cv::Mat elem = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(w, (int)(level*h)));
+    cv::Mat elem = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(w, h));
     cv::Ptr<cv::cuda::Filter> dilateFilter = cv::cuda::createMorphologyFilter( cv::MORPH_DILATE, CV_8UC1, elem);
     dilateFilter->apply((*gp), (*gp));
 	//imshow(gp);
@@ -351,11 +354,12 @@ bool crop(cv::cuda::GpuMat *gp, cv::Mat *cp, cv::Mat *color){
 	*/
 	cv::dilate(*cp, *cp, elem);
 	//imshow(gp);
-	vector<cv::Point> contour = getMaxContour(cp);	
+
+	vector<cv::Point> contour = getMaxContour(cp);
 	if(contour.size() > 0){
 		vector<cv::Point> contours_poly( contour.size() );
 		approxPolyDP( contour, contours_poly, int(contour.size()*0.2), true );
-        cv::Rect ROI = boundingRect( contours_poly );		
+        cv::Rect ROI = boundingRect( contours_poly ) & cv::Rect(0, 0, color->cols, color->rows);
 		*color = (*color)(ROI);
 		return true;
 	}
