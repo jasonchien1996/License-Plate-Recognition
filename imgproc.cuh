@@ -1,4 +1,3 @@
 #include <opencv2/opencv.hpp>
-using namespace cv;
 
-bool process(Mat&, std::vector<Mat>*);
+bool process(cv::Mat&, std::vector<cv::Mat>*);

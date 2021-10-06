@@ -17,7 +17,6 @@ namespace util{
 	void minimum(const float arr1[2], const float arr2[2], float min_arr[2]);
 	void maximum(const float arr1[2], const float arr2[2], float max_arr[2]);
 	void dknet_box_conversion(const vector<element>&, float&, float&, vector<box>&);
-	void nms(vector<box>&, float);
 	float IOU_box(const box&, const box&);
 	float IOU(const float tl1[2], const float br1[2], const float tl2[2], const float br2[2]);
 
@@ -162,5 +161,14 @@ namespace util{
 		}
 		rgbgr_image(im);
 		return im;
+	}
+
+	string getDate(){
+		time_t now = time(0);
+		tm *ltm = localtime(&now);
+		auto year = to_string(1900 + ltm->tm_year);
+		auto month = to_string(1 + ltm->tm_mon);
+		auto day = to_string(ltm->tm_mday);
+		return year + "_" + month + "_" + day;
 	}
 }

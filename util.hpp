@@ -19,6 +19,7 @@ namespace util{
 		float conf;
 	};
 
+	std::string getDate();
 	box *create_box(float ymin, float xmin, float ymax, float xmax, float conf);
 	void nms(std::vector<box>&, float iou_threshold);
 	image mat_to_image(const cv::Mat&);

@@ -4,16 +4,18 @@ nvcc display.cpp imgproc.cu -o display.out -I/usr/local/include/opencv4 -lopencv
 
 #include "imgproc.cuh"
 #include <opencv2/opencv.hpp>
+
 using namespace std;
+using namespace cv;
 
 int main() {
-	cv::Mat img = cv::imread("./picture/2.jpg");
-	cv::Mat a,b,c;
-	vector<cv::Mat> images = {a, b, c};
+	Mat img = imread("./picture/2.jpg");
+	Mat a,b,c;
+	vector<Mat> images = {a, b, c};
 	if(process(img, &images)){
-		for(cv::Mat mat:images){
-			cv::imshow("mat", mat);
-			cv::waitKey(0);
+		for(Mat mat:images){
+			imshow("mat", mat);
+			waitKey(0);
 		}
 	}	
 	return 0;
